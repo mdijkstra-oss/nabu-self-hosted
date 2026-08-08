@@ -1,0 +1,35 @@
+# Every tier on OPENAI_API_KEY alone — for easy development; consensus within one provider is moot.
+models:
+  # corpus-describer, file-hyde, generic-hyde, hyde-generator, section-labeler, topic-assigner
+  lite:
+    model: openai/gpt-5.6-luna
+    reasoning_effort: minimal
+
+  # scout-filter
+  mid:
+    model: openai/gpt-5.6-terra
+    reasoning_effort: minimal
+    verbosity: low
+    reasoning_summary: concise
+
+  # qual-coder, semantic-filter, refine-code
+  strong:
+    model: openai/gpt-5.6-sol
+    reasoning_effort: medium
+    verbosity: low
+    reasoning_summary: concise
+
+  # An alias prompt resolves against shared/ and goes in front of the agent's own.
+  strong-planning:
+    extends: strong
+    prompt: nabu/modes/planning.md
+  strong-execution:
+    extends: strong
+    prompt: nabu/modes/execution.md
+
+  # deep-analysis-adjudicate and both filter voters — same model as strong, Sol tops the line.
+  expert:
+    model: openai/gpt-5.6-sol
+    reasoning_effort: low
+    verbosity: low
+    reasoning_summary: concise

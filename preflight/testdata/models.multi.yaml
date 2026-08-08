@@ -1,0 +1,29 @@
+# Agents name tiers, never models. Swap this file for a models.<provider>.yaml to run on one key.
+models:
+  # corpus-describer, file-hyde, generic-hyde, hyde-generator, section-labeler, topic-assigner
+  lite:
+    model: gemini/gemini-3.5-flash-lite
+    reasoning_effort: minimal
+
+  # scout-filter
+  mid:
+    model: gemini/gemini-3.6-flash
+    reasoning_effort: minimal
+
+  # qual-coder, semantic-filter, refine-code
+  strong:
+    model: anthropic/claude-opus-5
+    reasoning_effort: medium
+
+  # An alias prompt resolves against shared/ and goes in front of the agent's own.
+  strong-planning:
+    extends: strong
+    prompt: nabu/modes/planning.md
+  strong-execution:
+    extends: strong
+    prompt: nabu/modes/execution.md
+
+  # deep-analysis-adjudicate and both filter voters, so consensus runs one model twice.
+  expert:
+    model: anthropic/claude-fable-5
+    reasoning_effort: low

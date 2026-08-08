@@ -1,0 +1,58 @@
+{
+	admin off
+	auto_https off
+}
+
+:8090 {
+	# Response matchers cannot negate a value, so compressible types are
+	# enumerated instead of text/*: text/event-stream must stay out so
+	# chancery's SSE relays unbuffered, each event flushed as it arrives.
+	encode gzip {
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/plain*
+			header Content-Type text/javascript*
+			header Content-Type text/markdown*
+			header Content-Type text/csv*
+			header Content-Type text/xml*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type application/xml*
+			header Content-Type application/manifest+json*
+			header Content-Type application/wasm*
+			header Content-Type image/svg+xml*
+			header Content-Type font/*
+		}
+	}
+
+	# route preserves the order written here. Outside one, Caddy sorts by its
+	# own directive order and the catch-all handle would answer /health.
+	route {
+		# Answered by the proxy itself, so the published origin reports
+		# liveness even when every upstream is down.
+		respond /health "ok" 200
+
+		# WebSocket upgrades on /api/ws/{projectId} pass through: Caddy
+		# forwards the Connection/Upgrade handshake by default.
+		handle_path /api/* {
+			reverse_proxy storage:8080
+		}
+
+		handle_path /llm/* {
+			reverse_proxy chancery:8081
+		}
+
+		# Exact path, unchanged: the embeddings service's own Caddy rewrites
+		# it to the OpenAI upstream. Its /health stays unreachable from here.
+		handle /embeddings {
+			reverse_proxy embeddings:8082
+		}
+
+		# The frontend's own Caddy serves the bundle and answers deep links
+		# with /index.html.
+		handle {
+			reverse_proxy frontend:8080
+		}
+	}
+}

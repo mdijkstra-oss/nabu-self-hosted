@@ -1,0 +1,197 @@
+name: nabu
+
+services:
+  proxy:
+    image: caddy:2-alpine
+    # The stack's ONLY published port. Everything else stays on the compose
+    # network, which is what keeps dragoman's and storage's unauthenticated
+    # listeners unreachable from the host.
+    ports:
+      - "${NABU_PORT:-8090}:8090"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 2s
+      retries: 5
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ${NABU_FRONTEND_REPO:-https://github.com/mdijkstra-oss/nabu-frontend.git#main}
+      # Baked into the static bundle at build time. The /-prefix means
+      # same-origin: the app takes scheme and host from window.location.
+      args:
+        VITE_API_HOST: /api
+        VITE_LLM_HOST: /llm
+        VITE_EMBEDDINGS_URL: /embeddings
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  storage:
+    build:
+      context: ${NABU_STORAGE_REPO:-https://github.com/mdijkstra-oss/nabu-storage.git#main}
+    environment:
+      PERSISTENCE_DIR: /data
+    # A non-default STORAGE_DATA must be a ./ or absolute host path, writable
+    # by uid 65532 — storage's fixed container user.
+    volumes:
+      - ${STORAGE_DATA:-projects}:/data
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  embeddings:
+    build:
+      context: ${NABU_EMBEDDINGS_REPO:-https://github.com/mdijkstra-oss/nabu-embeddings.git#main}
+      # The repo ships only a Caddyfile; the image is assembled here so no
+      # internal detail leaks into that repo.
+      dockerfile_inline: |
+        FROM caddy:2-alpine
+        COPY Caddyfile /etc/caddy/Caddyfile
+        EXPOSE 8082
+    # Injected server-side into every upstream request; the key never
+    # reaches the browser. No CORS_ORIGIN: behind the proxy every request
+    # is same-origin.
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8082/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 2s
+      retries: 5
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  chancery:
+    build:
+      context: ${CHANCERY_REPO:-https://github.com/mdijkstra-oss/chancery.git#main}
+    environment:
+      RESPONSES_BASE_URL: http://dragoman:8080
+      ENV: production
+    # The image's working directory makes /config the default config dir, so
+    # the seeded volume is the entire prompt-and-models configuration.
+    volumes:
+      - prompts:/config:ro
+    # depends_on alone waits for start, not for listening.
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+      dragoman:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dragoman:
+    build:
+      context: ${DRAGOMAN_REPO:-https://github.com/mdijkstra-oss/dragoman.git#main}
+    # No config mount and no command: the image defaults already serve the
+    # embedded service table on 0.0.0.0:8080. All five keys pass so any
+    # models yaml that clears preflight never dies keyless at first request.
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  prompts-seed:
+    build:
+      context: ${NABU_PROMPTS_REPO:-https://github.com/mdijkstra-oss/nabu-prompts.git#main}
+      dockerfile_inline: |
+        FROM alpine:3
+        COPY config/ /seed/config/
+        COPY <<'SCRIPT' /seed.sh
+        set -eu
+
+        # Replace, not merge: a prompt file deleted upstream must disappear
+        # from the volume too.
+        find /prompts -mindepth 1 -delete
+        cp -R /seed/config/. /prompts/
+
+        if [ -n "$${MODELS_FILE:-}" ]; then
+            # Docker materializes an empty directory when the host path does
+            # not exist; refuse anything but a regular readable file rather
+            # than fall back to a preset.
+            if [ -f /models-file ] && [ -r /models-file ]; then
+                cp /models-file /prompts/models.yaml
+            else
+                echo "MODELS_FILE=$${MODELS_FILE}: not a regular readable file on the host" >&2
+                exit 1
+            fi
+        else
+            preset="/prompts/models.$${MODELS:-openai}.yaml"
+            if [ -f "$$preset" ]; then
+                cp "$$preset" /prompts/models.yaml
+            else
+                echo "MODELS=$${MODELS:-openai}: no such preset; presets that exist:" >&2
+                for f in /seed/config/models.*.yaml; do
+                    p="$${f##*/models.}"
+                    printf '  %s\n' "$${p%.yaml}" >&2
+                done
+                exit 1
+            fi
+        fi
+        SCRIPT
+        ENTRYPOINT ["sh", "/seed.sh"]
+    environment:
+      MODELS: ${MODELS:-openai}
+      MODELS_FILE: ${MODELS_FILE:-}
+    # Unset MODELS_FILE interpolates the mount to the null device; the seed
+    # judges the target by the variable, not the mount.
+    volumes:
+      - prompts:/prompts
+      - ${MODELS_FILE:-/dev/null}:/models-file:ro
+
+  preflight:
+    build:
+      context: ./preflight
+      # The check's service-table input is captured from the exact dragoman
+      # image the stack runs, so the two tables agree whenever the stack is
+      # built together. A partial `docker compose build dragoman` can skew
+      # them until the next full build.
+      additional_contexts:
+        dragoman: "service:dragoman"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    # The resolved models.yaml is what required keys are derived from.
+    volumes:
+      - prompts:/config:ro
+    depends_on:
+      prompts-seed:
+        condition: service_completed_successfully
+
+  welcome-seed:
+    build:
+      context: ./seed
+    environment:
+      STORAGE_URL: http://storage:8080
+    # Nothing gates on this service: its failure leaves the stack serving
+    # with an empty project list.
+    depends_on:
+      storage:
+        condition: service_healthy
+
+volumes:
+  # Written by storage alone; survives `down`.
+  projects:
+  # Rewritten by prompts-seed on every start; disposable.
+  prompts:

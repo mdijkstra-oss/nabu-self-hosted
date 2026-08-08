@@ -1,0 +1,39 @@
+openai:
+  endpoint: https://api.openai.com/v1
+  protocol: openai-responses
+  auth: OPENAI_API_KEY
+
+anthropic:
+  endpoint: https://api.anthropic.com/v1
+  protocol: anthropic-messages
+  auth: ANTHROPIC_API_KEY
+
+gemini:
+  endpoint: https://generativelanguage.googleapis.com/v1beta
+  protocol: gemini-interactions
+  auth: GEMINI_API_KEY
+
+deepseek:
+  endpoint: https://api.deepseek.com
+  protocol: openai-completions
+  auth: DEEPSEEK_API_KEY
+  max_output_tokens_as: max_tokens
+  schema_as_prompt: true
+
+openrouter:
+  endpoint: https://openrouter.ai/api/v1
+  protocol: openai-completions
+  auth: OPENROUTER_API_KEY
+
+openai-chat:
+  endpoint: https://api.openai.com/v1
+  protocol: openai-completions
+  auth: OPENAI_API_KEY
+
+# A process rather than a URL, and no auth: the CLI was signed in once,
+# interactively, and holds its own credential. Nothing else is stated here
+# because what this service does differently follows from the exec scheme, so
+# naming the same binary in flags behaves identically.
+claude-cli:
+  endpoint: exec:claude
+  protocol: anthropic-messages
