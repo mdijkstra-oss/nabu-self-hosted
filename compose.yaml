@@ -179,17 +179,6 @@ services:
       prompts-seed:
         condition: service_completed_successfully
 
-  welcome-seed:
-    build:
-      context: ./seed
-    environment:
-      STORAGE_URL: http://storage:8080
-    # Nothing gates on this service: its failure leaves the stack serving
-    # with an empty project list.
-    depends_on:
-      storage:
-        condition: service_healthy
-
 volumes:
   # Written by storage alone; survives `down`.
   projects:
