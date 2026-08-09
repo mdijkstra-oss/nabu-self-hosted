@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -180,5 +182,153 @@ func TestMalformedProjectsResponseExitsNonZero(t *testing.T) {
 	var stderr strings.Builder
 	if code := run(server.URL, &stderr); code == 0 {
 		t.Fatal("run() = 0, want non-zero")
+	}
+}
+
+func seedDir(t *testing.T, names ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("content of "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestSeedsEveryFileInSeedDirSortedToOneProject(t *testing.T) {
+	t.Setenv("SEED_DIR", seedDir(t, "notes on birds.md", "alpha.md", "zeta.txt"))
+	fake := newFakeStorage(t)
+
+	if code := run(fake.URL, io.Discard); code != 0 {
+		t.Fatalf("run() = %d, want 0", code)
+	}
+	if len(fake.posts) != 3 {
+		t.Fatalf("storage received %d writes, want exactly 3", len(fake.posts))
+	}
+
+	want := []string{"alpha.md", "notes on birds.md", "zeta.txt"}
+	for i, post := range fake.posts {
+		if !commandPath.MatchString(post.Path) {
+			t.Errorf("post %d path = %q, want /commands/{uuidv4}", i, post.Path)
+		}
+		if post.Path != fake.posts[0].Path {
+			t.Errorf("post %d path = %q, want same project as first post %q", i, post.Path, fake.posts[0].Path)
+		}
+
+		var cmd struct {
+			Action  string `json:"action"`
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(post.Body, &cmd); err != nil {
+			t.Fatalf("post %d body is not JSON: %v: %s", i, err, post.Body)
+		}
+		if cmd.Action != "WriteFile" {
+			t.Errorf("post %d action = %q, want WriteFile", i, cmd.Action)
+		}
+		if cmd.Path != want[i] {
+			t.Errorf("post %d path = %q, want %q (sorted order)", i, cmd.Path, want[i])
+		}
+		if cmd.Content != "content of "+want[i] {
+			t.Errorf("post %d content = %q, want %q", i, cmd.Content, "content of "+want[i])
+		}
+	}
+}
+
+func TestSeedDirDoesNotOverrideEmptySignal(t *testing.T) {
+	t.Setenv("SEED_DIR", seedDir(t, "alpha.md"))
+	fake := newFakeStorage(t, "0b0e9646-88fc-4a48-9c1a-6b04a2f0f3a4")
+
+	if code := run(fake.URL, io.Discard); code != 0 {
+		t.Fatalf("run() = %d, want 0", code)
+	}
+	if len(fake.posts) != 0 {
+		t.Fatalf("storage received %d writes, want none", len(fake.posts))
+	}
+}
+
+func TestMisconfiguredSeedDirExitsNonZeroWithoutWrites(t *testing.T) {
+	tests := []struct {
+		name     string
+		dir      func(t *testing.T) string
+		offender string
+	}{
+		{
+			name:     "missing directory",
+			dir:      func(t *testing.T) string { return filepath.Join(t.TempDir(), "absent") },
+			offender: "absent",
+		},
+		{
+			name:     "no regular files",
+			dir:      func(t *testing.T) string { return t.TempDir() },
+			offender: "no regular files",
+		},
+		{
+			name: "subdirectory",
+			dir: func(t *testing.T) string {
+				dir := seedDir(t, "alpha.md")
+				if err := os.Mkdir(filepath.Join(dir, "nested"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return dir
+			},
+			offender: "nested",
+		},
+		{
+			name:     "filename outside storage's grammar",
+			dir:      func(t *testing.T) string { return seedDir(t, "alpha.md", "bad#name.md") },
+			offender: "bad#name.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SEED_DIR", tt.dir(t))
+			fake := newFakeStorage(t)
+
+			var stderr strings.Builder
+			if code := run(fake.URL, &stderr); code == 0 {
+				t.Fatal("run() = 0, want non-zero")
+			}
+			if !strings.Contains(stderr.String(), tt.offender) {
+				t.Errorf("stderr = %q, want %q named in it", stderr.String(), tt.offender)
+			}
+			if len(fake.posts) != 0 {
+				t.Fatalf("storage received %d writes, want none", len(fake.posts))
+			}
+		})
+	}
+}
+
+func TestMidSeedRejectionExitsNonZeroWithResponseOnStderr(t *testing.T) {
+	t.Setenv("SEED_DIR", seedDir(t, "alpha.md", "beta.md", "gamma.md"))
+
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"items": []any{}, "total": 0, "page": 1, "page_size": 50,
+			})
+			return
+		}
+		posts++
+		if posts == 2 {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "write rejected"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}))
+	t.Cleanup(server.Close)
+
+	var stderr strings.Builder
+	if code := run(server.URL, &stderr); code == 0 {
+		t.Fatal("run() = 0, want non-zero")
+	}
+	if !strings.Contains(stderr.String(), "write rejected") {
+		t.Errorf("stderr = %q, want the storage response in it", stderr.String())
+	}
+	if posts != 2 {
+		t.Errorf("storage received %d writes, want 2: seeding stops at the rejection", posts)
 	}
 }

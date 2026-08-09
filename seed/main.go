@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // The empty signal is the project list, not any particular file: a user who
@@ -37,6 +39,11 @@ type command struct {
 	Content string `json:"content"`
 }
 
+type seedFile struct {
+	path    string
+	content string
+}
+
 func main() {
 	storageURL := os.Getenv("STORAGE_URL")
 	if storageURL == "" {
@@ -46,6 +53,13 @@ func main() {
 }
 
 func run(storageURL string, stderr io.Writer) int {
+	// SEED_DIR is read here rather than in main so run keeps the signature
+	// the pinned seed tests call it with.
+	files, err := loadSeedFiles(os.Getenv("SEED_DIR"))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	empty, err := storageIsEmpty(storageURL)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -54,7 +68,7 @@ func run(storageURL string, stderr io.Writer) int {
 	if !empty {
 		return 0
 	}
-	if err := seedWelcomeProject(storageURL); err != nil {
+	if err := seedProject(storageURL, files); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -83,13 +97,82 @@ func storageIsEmpty(storageURL string) (bool, error) {
 	return len(page.Items) == 0 && page.Total == 0, nil
 }
 
-func seedWelcomeProject(storageURL string) error {
+// Unset SEED_DIR keeps the embedded welcome document, so every deployment
+// without the e2e mount seeds exactly what it did before SEED_DIR existed.
+func loadSeedFiles(dir string) ([]seedFile, error) {
+	if dir == "" {
+		return []seedFile{{path: "welcome.md", content: welcomeText}}, nil
+	}
+
+	// os.ReadDir sorts by filename, which makes the seed order deterministic.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("SEED_DIR: %w", err)
+	}
+
+	files := make([]seedFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return nil, fmt.Errorf("SEED_DIR: %s: %q is a directory, the corpus must be flat", dir, entry.Name())
+		}
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		if !validFilename(entry.Name()) {
+			return nil, fmt.Errorf("SEED_DIR: %s: %q is outside storage's filename grammar", dir, entry.Name())
+		}
+		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("SEED_DIR: %w", err)
+		}
+		files = append(files, seedFile{path: entry.Name(), content: string(content)})
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("SEED_DIR: %s contains no regular files", dir)
+	}
+	return files, nil
+}
+
+// Mirrors storage's grammar (nabu-storage internal/lib/utils/id.go,
+// ValidFilePath) so a bad name fails the boot instead of a mid-seed write.
+func validFilename(name string) bool {
+	if name == "" || strings.HasPrefix(name, ".") || strings.Contains(name, "..") {
+		return false
+	}
+	for _, r := range name {
+		if !isSafeFilenameChar(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isSafeFilenameChar(r rune) bool {
+	if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+		return true
+	}
+	switch r {
+	case '-', '_', '.', ' ', '(', ')', '\'', ',':
+		return true
+	}
+	return false
+}
+
+func seedProject(storageURL string, files []seedFile) error {
 	projectID, err := newUUID()
 	if err != nil {
 		return err
 	}
+	for _, file := range files {
+		if err := writeFile(storageURL, projectID, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	body, err := json.Marshal(command{Action: "WriteFile", Path: "welcome.md", Content: welcomeText})
+func writeFile(storageURL, projectID string, file seedFile) error {
+	body, err := json.Marshal(command{Action: "WriteFile", Path: file.path, Content: file.content})
 	if err != nil {
 		return err
 	}
