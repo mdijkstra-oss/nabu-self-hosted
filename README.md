@@ -1,14 +1,14 @@
 # Nabu self-hosted
 
-Nabu self-hosted runs the whole Nabu stack — the web app, project storage, embeddings, and the LLM gateway with its prompt config — as one Docker Compose stack behind a single published port.
+Nabu self-hosted runs the Nabu stack as one Docker Compose project behind a single published port: the web app, project storage, embeddings, and the LLM gateway with its prompt configuration.
 
-You clone this repository, put your API keys in `.env`, run `docker compose up`, and open one URL. Every service is built from its own repository at build time; this repository holds only the stack definition.
+Every service is built from its own repository at build time. This repository holds the stack definition and the preflight check that guards it.
 
 ## Prerequisites
 
-- Docker with Compose v2.33 or newer — the stack builds its preflight check from another service's image, which older Compose versions cannot resolve. Check with `docker compose version`.
-- An OpenAI API key. It is always required, whichever models you pick, because the embeddings service uses it. Other providers need their own key only when your model selection names them.
-- Network access to github.com (the builds fetch each service's source from there) and to the model providers.
+- Docker with Compose v2.33 or newer. The stack builds its preflight check from another service's image, which earlier versions cannot resolve. Verify with `docker compose version`.
+- An OpenAI API key. The embeddings service requires it regardless of which models are selected. Other providers require their own key only when the model selection names them.
+- Network access to github.com, which the builds fetch each service's source from, and to the model providers.
 
 ## Install
 
@@ -18,29 +18,32 @@ cd nabu-self-hosted
 cp .env.example .env
 ```
 
-Open `.env` and set `OPENAI_API_KEY`. Then:
+Set `OPENAI_API_KEY` in `.env`, then start the stack:
 
 ```sh
 docker compose up
 ```
 
-The first run builds every service from source, so it takes a few minutes. When the stack is up, open <http://localhost:8090> — the app lands you in a welcome project.
+The first run builds every service from source and takes several minutes. Once the stack is up, open <http://localhost:8090>. The app offers to create a first project.
 
-Before anything serves, a preflight check verifies that every API key your model selection needs is present. When one is missing, the stack stops instead of starting half-broken, and the preflight's output names the missing variable.
+A preflight check runs before any service accepts traffic. It verifies that every API key the model selection requires is present, and stops the stack when one is missing, naming the variable.
 
 ## Choosing models
 
-`MODELS` in `.env` selects a preset: `openai` (the default), `anthropic`, `gemini`, `deepseek`, or `multi`. Each preset needs its provider's API key set — `multi` needs several; the preflight tells you exactly which.
+> [!IMPORTANT]
+> The embeddings service supports OpenAI only. No setting directs it to another provider, so `OPENAI_API_KEY` is required even when every model tier runs on Anthropic, Gemini, or DeepSeek.
 
-`MODELS_FILE`, when set to a host path, uses your own models yaml instead of any preset and `MODELS` is ignored. A path that does not point at a readable file stops the stack rather than silently falling back.
+`MODELS` in `.env` selects a preset: `openai` (the default), `anthropic`, `gemini`, `deepseek`, or `multi`. Each preset requires its provider's API key. The `multi` preset requires several, and the preflight names them.
 
-A changed model selection takes effect on the next `docker compose up`; no rebuild is needed.
+`MODELS_FILE` takes a host path to a models yaml and overrides `MODELS`. A path that does not resolve to a readable file stops the stack.
+
+A changed model selection applies on the next `docker compose up` and requires no rebuild.
 
 ## Where data lives
 
-Your projects live in the Docker volume `projects`. They survive `docker compose down`; only `docker compose down -v` deletes them.
+Project files are stored in the Docker volume `projects`. They survive `docker compose down` and are removed only by `docker compose down -v`.
 
-Set `STORAGE_DATA` in `.env` to a `./`-relative or absolute host path to keep project files in a directory instead. The directory must be writable by uid 65532, the fixed unprivileged user the storage service runs as.
+`STORAGE_DATA` accepts a `./`-relative or absolute host path and stores project files in that directory instead. The directory must be writable by uid 65532, the fixed unprivileged user the storage service runs as.
 
 ## Updating
 
@@ -50,21 +53,32 @@ docker compose build
 docker compose up
 ```
 
-Always run the full `docker compose build`: the preflight check captures the LLM gateway's provider table from the image built alongside it, so rebuilding one service alone can leave the two out of step until the next full build.
+Each build fetches the `main` branch of every service repository. Builds are therefore not reproducible: nothing pins a service to a release, and the same commands can produce different images on two machines. Set the `*_REPO` variables to local checkouts to build from a fixed tree.
+
+Run the full `docker compose build`. The preflight check captures the LLM gateway's provider table from the image built alongside it, so rebuilding a single service can leave the two out of step until the next full build.
 
 ## Configuration reference
 
-All knobs live in `.env`; `.env.example` documents each next to its default.
+Every setting is read from `.env`. `.env.example` documents each one next to its default.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | empty | Always required; used for embeddings and by the `openai` and `multi` presets |
-| `ANTHROPIC_API_KEY` | empty | Needed by the `anthropic` and `multi` presets |
-| `GEMINI_API_KEY` | empty | Needed by the `gemini` and `multi` presets |
-| `DEEPSEEK_API_KEY` | empty | Needed by the `deepseek` preset |
-| `OPENROUTER_API_KEY` | unset | Only reachable from a `MODELS_FILE` yaml that names `openrouter/` models |
+| `OPENAI_API_KEY` | empty | Required. Used by the embeddings service and by the `openai` and `multi` presets |
+| `ANTHROPIC_API_KEY` | empty | Required by the `anthropic` and `multi` presets |
+| `GEMINI_API_KEY` | empty | Required by the `gemini` and `multi` presets |
+| `DEEPSEEK_API_KEY` | empty | Required by the `deepseek` preset |
+| `OPENROUTER_API_KEY` | unset | Reachable only from a `MODELS_FILE` yaml naming `openrouter/` models |
 | `MODELS` | `openai` | Selects a models preset |
-| `MODELS_FILE` | unset | Host path to your own models yaml; wins over `MODELS` |
-| `NABU_PORT` | `8090` | Host port the stack publishes — its only one |
+| `MODELS_FILE` | unset | Host path to a models yaml. Overrides `MODELS` |
+| `NABU_PORT` | `8090` | The stack's only published host port |
 | `STORAGE_DATA` | `projects` | Named volume, or a host path for project files |
-| `NABU_FRONTEND_REPO`, `NABU_STORAGE_REPO`, `NABU_EMBEDDINGS_REPO`, `NABU_PROMPTS_REPO`, `CHANCERY_REPO`, `DRAGOMAN_REPO` | unset | Build a service from a local working copy instead of its GitHub repository, for side-by-side development |
+| `NABU_FRONTEND_REPO`, `NABU_STORAGE_REPO`, `NABU_EMBEDDINGS_REPO`, `NABU_PROMPTS_REPO`, `CHANCERY_REPO`, `DRAGOMAN_REPO` | unset | Builds a service from a local working copy instead of its GitHub repository |
+
+## See also
+
+- [nabu-frontend](https://github.com/mdijkstra-oss/nabu-frontend) — the web app
+- [nabu-storage](https://github.com/mdijkstra-oss/nabu-storage) — project files and the sync API
+- [nabu-embeddings](https://github.com/mdijkstra-oss/nabu-embeddings) — the `/embeddings` route
+- [nabu-prompts](https://github.com/mdijkstra-oss/nabu-prompts) — prompt files and the models presets
+- [chancery](https://github.com/mdijkstra-oss/chancery) — the agent gateway behind `/llm`
+- [dragoman](https://github.com/mdijkstra-oss/dragoman) — provider routing beneath chancery

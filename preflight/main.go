@@ -1,5 +1,5 @@
 // Preflight proves every API key the stack will need exists before any other
-// service starts. Contract: docs/specs/2026-08-08-01-nabu-self-hosted/preflight.md.
+// service starts.
 package main
 
 import (
