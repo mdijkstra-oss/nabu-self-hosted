@@ -88,15 +88,6 @@ func TestRun(t *testing.T) {
 			stderrHas: []string{"cannot be routed", `"claude-opus-5"`},
 		},
 		{
-			name:      "exec-scheme service fails naming the service, never a missing key",
-			models:    "models:\n  strong:\n    model: claude-cli/opus\n",
-			dragoman:  fixture(t, "dragoman.yaml"),
-			env:       allKeys(),
-			exit:      1,
-			stderrHas: []string{`"claude-cli"`, "exec:claude"},
-			stderrNot: []string{"required by"},
-		},
-		{
 			name:      "multi preset missing GEMINI_API_KEY names the variable and its prefix",
 			models:    fixture(t, "models.multi.yaml"),
 			dragoman:  fixture(t, "dragoman.yaml"),

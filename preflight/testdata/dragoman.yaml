@@ -29,11 +29,3 @@ openai-chat:
   endpoint: https://api.openai.com/v1
   protocol: openai-completions
   auth: OPENAI_API_KEY
-
-# A process rather than a URL, and no auth: the CLI was signed in once,
-# interactively, and holds its own credential. Nothing else is stated here
-# because what this service does differently follows from the exec scheme, so
-# naming the same binary in flags behaves identically.
-claude-cli:
-  endpoint: exec:claude
-  protocol: anthropic-messages

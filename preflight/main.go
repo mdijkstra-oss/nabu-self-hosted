@@ -33,8 +33,7 @@ type modelEntry struct {
 // service reads a strict subset of dragoman's service entry
 // (dragoman/internal/config/config.go); the document root is the service map.
 type service struct {
-	Endpoint string `yaml:"endpoint"`
-	Auth     string `yaml:"auth"`
+	Auth string `yaml:"auth"`
 }
 
 func main() {
@@ -91,8 +90,8 @@ func parse(path string, target any) error {
 	return nil
 }
 
-// check returns one line per problem, every problem in one run: routing and
-// exec failures per offending model value, then one line per missing variable.
+// check returns one line per problem, every problem in one run: a routing
+// failure per offending model value, then one line per missing variable.
 func check(models map[string]modelEntry, services map[string]service, env map[string]string) []string {
 	var failures []string
 	demanded := []string{embeddingsVar}
@@ -107,10 +106,6 @@ func check(models map[string]modelEntry, services map[string]service, env map[st
 		matched, known := services[prefix]
 		if !routable || !known {
 			failures = append(failures, fmt.Sprintf("model %q cannot be routed: no dragoman service matches prefix %q", value, prefix))
-			continue
-		}
-		if isSpawned(matched.Endpoint) {
-			failures = append(failures, fmt.Sprintf("model %q needs service %q, which spawns a CLI (endpoint %q) and cannot serve in this stack", value, prefix, matched.Endpoint))
 			continue
 		}
 		if matched.Auth == "" {
@@ -130,12 +125,6 @@ func check(models map[string]modelEntry, services map[string]service, env map[st
 		failures = append(failures, fmt.Sprintf("%s is unset or empty, required by %s", name, strings.Join(reasons[name], " and ")))
 	}
 	return failures
-}
-
-// isSpawned mirrors dragoman's scheme cut (dragoman/internal/base/backend.go).
-func isSpawned(endpoint string) bool {
-	scheme, _, found := strings.Cut(endpoint, ":")
-	return found && scheme == "exec"
 }
 
 func sortedKeys(models map[string]modelEntry) []string {
