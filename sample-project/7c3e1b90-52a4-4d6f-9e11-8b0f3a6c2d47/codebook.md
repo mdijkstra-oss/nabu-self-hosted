@@ -33,8 +33,8 @@ None of that changes what a passage means. A code is applied to what the passage
 ```json-attributes
 {
 	"tags": [
-		"framework",
-		"codebook"
+		"tag-2rz0n2cv",
+		"tag-5wo8ixhn"
 	],
 	"date": "1912-03-02",
 	"type": "codebook",

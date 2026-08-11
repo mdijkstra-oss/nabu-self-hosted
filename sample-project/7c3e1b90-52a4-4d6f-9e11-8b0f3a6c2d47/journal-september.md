@@ -23,7 +23,7 @@
 ```json-attributes
 {
 	"tags": [
-		"journal"
+		"tag-5asfwgjr"
 	],
 	"date": "1912-09-01",
 	"type": "journal",

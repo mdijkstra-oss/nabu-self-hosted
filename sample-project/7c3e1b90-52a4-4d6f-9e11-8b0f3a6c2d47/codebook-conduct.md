@@ -49,7 +49,7 @@ What the party does about its situation: counts, plans, celebrates, and quarrels
 ```json-attributes
 {
 	"tags": [
-		"codebook"
+		"tag-5wo8ixhn"
 	],
 	"date": "1912-03-02",
 	"type": "codebook",

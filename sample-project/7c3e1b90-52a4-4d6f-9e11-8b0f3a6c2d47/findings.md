@@ -140,7 +140,7 @@ Eleven passages carry a colour and no code. Three of them are the same shape: a 
 ```json-attributes
 {
 	"tags": [
-		"analysis"
+		"tag-3qm4vd7p"
 	],
 	"date": "1912-11-04",
 	"type": "analysis-note",

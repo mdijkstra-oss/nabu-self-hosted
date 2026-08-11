@@ -38,7 +38,7 @@ What the weather, the cold and the light are doing, and what the writer makes of
 ```json-attributes
 {
 	"tags": [
-		"codebook"
+		"tag-5wo8ixhn"
 	],
 	"date": "1912-03-02",
 	"type": "codebook",

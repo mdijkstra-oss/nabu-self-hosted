@@ -27,7 +27,7 @@ Not the hut journal. Kept for myself, in the small book, and not left on the tab
 ```json-attributes
 {
 	"tags": [
-		"notebook"
+		"tag-9vofk4z4"
 	],
 	"date": "1912-10-31",
 	"type": "notebook",
