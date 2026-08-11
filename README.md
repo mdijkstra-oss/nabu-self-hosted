@@ -104,6 +104,53 @@ docker compose up
 
 Each build fetches the `main` branch of every service repository. Builds are therefore not reproducible: nothing pins a service to a release, and the same commands can produce different images on two machines. Set the `*_REPO` variables to local checkouts to build from a fixed tree.
 
+## Development
+
+`docker compose up` builds each service into an image, so a one-line change costs a rebuild. The `Procfile` next to this file runs the same stack as five native processes instead, each rebuilt and restarted the moment its own repository changes.
+
+It expects every repository checked out beside this one, with chancery and dragoman one level up:
+
+```
+.
+├── chancery
+├── dragoman
+└── nabu
+    ├── nabu-embeddings
+    ├── nabu-frontend
+    ├── nabu-prompts
+    ├── nabu-self-hosted
+    └── nabu-storage
+```
+
+Beyond that it needs Go, Node, [overmind](https://github.com/DarthSim/overmind), [watchexec](https://github.com/watchexec/watchexec) and Caddy:
+
+```sh
+brew install overmind watchexec caddy
+make dev
+```
+
+`make dev` stops before starting anything if a tool or a checkout is missing, and names every one it found missing at once. `make check` reports the same thing without starting anything, and covers the container stack too. `make` on its own lists every target.
+
+The app is on <http://localhost:5173>. `.env` supplies the API keys and `PROJECT_DIR`, exactly as it does for compose, so a stack you have already configured needs nothing added.
+
+There is no proxy. Each service publishes its own port and the app addresses them directly:
+
+| Process | Port | Rebuilds when |
+| --- | --- | --- |
+| `frontend` | 5173 | never — Vite hot-reloads the module |
+| `storage` | 8080 | `nabu-storage/**/*.go` |
+| `chancery` | 8081 | `chancery/**/*.go`, and any prompt or models table in `nabu-prompts/config` |
+| `embeddings` | 8082 | `nabu-embeddings/Caddyfile` |
+| `dragoman` | 8083 | `dragoman/{cmd,internal}/**/*.{go,yaml}` |
+
+dragoman moves to 8083 here. In the container stack it shares 8080 with storage, which is only possible because each has its own network namespace.
+
+Two differences from the compose stack are worth knowing, because they are the parts this arrangement cannot exercise. Requests are cross-origin rather than same-origin, so the app exercises the CORS path that production never reaches. And the browser talks to storage, chancery and embeddings directly, so the Caddy routing in `Caddyfile` is not in the picture at all. [nabu-e2e](https://github.com/mdijkstra-oss/nabu-e2e) runs against the compose stack and covers both.
+
+It runs in the foreground, and Ctrl-C stops all five. Closing the window instead leaves `.overmind.sock` behind, which the next `make dev` removes after checking that nothing is behind it.
+
+`overmind status` lists the five processes and their pids. `overmind connect chancery` attaches to one process's terminal, which is the readable way to follow a single service or run a debugger against it. `overmind restart storage` restarts one by hand.
+
 ## Configuration reference
 
 Every setting is read from `.env`. `.env.example` documents each one next to its default.

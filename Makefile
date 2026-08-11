@@ -1,0 +1,107 @@
+# Two stacks live in this repository. `make up` runs the container stack, the
+# one Nabu self-hosted ships. `make dev` runs the same services as native
+# processes that restart on a change — see README, "Development".
+
+.DEFAULT_GOAL := help
+
+# Checked before the stack that needs them starts, so a missing one is a
+# sentence here rather than an error from inside docker or overmind.
+DOCKER_TOOLS := docker
+DEV_TOOLS := go npm overmind watchexec caddy
+
+# The dev stack builds from these; the container stack fetches from GitHub and
+# needs none of them present.
+DEV_REPOS := ../nabu-storage ../nabu-frontend ../nabu-embeddings ../nabu-prompts ../../chancery ../../dragoman
+
+.PHONY: help
+help:
+	@echo "Container stack"
+	@echo "  make up        start the stack, building anything not yet built"
+	@echo "  make down      stop it"
+	@echo "  make rebuild   rebuild every service from its repository's main branch"
+	@echo "  make logs      follow the running stack's logs"
+	@echo ""
+	@echo "Native stack, for development"
+	@echo "  make dev       start every service as a process that restarts on a change"
+	@echo ""
+	@echo "  make check     report what each stack needs and whether it is there"
+
+# --- container stack ---------------------------------------------------------
+
+.PHONY: up down rebuild logs
+up: require-docker
+	docker compose up
+
+down:
+	docker compose down
+
+rebuild: require-docker
+	docker compose build
+
+logs:
+	docker compose logs -f
+
+# --- native stack ------------------------------------------------------------
+
+# Runs in the foreground: Ctrl-C stops every process, so there is no target to
+# stop it with.
+#
+# Closing the window instead sends SIGHUP, which stops the processes but leaves
+# the socket, and overmind then refuses to start against what looks like a
+# running instance. `status` answers over the socket, so its failing means
+# nothing is behind it.
+.PHONY: dev
+dev: require-dev
+	@if [ -S .overmind.sock ] && ! overmind status >/dev/null 2>&1; then \
+	  echo "removing .overmind.sock, left behind by a run that did not exit"; \
+	  rm -f .overmind.sock; \
+	fi
+	@overmind start
+
+# --- what each stack needs ---------------------------------------------------
+
+# One line per tool and per checkout, reporting rather than stopping: this is
+# the target to run when something is wrong and you want the whole picture.
+.PHONY: check
+check:
+	@echo "Container stack"
+	@$(foreach t,$(DOCKER_TOOLS),printf "  %-11s %s\n" "$(t)" "$$(command -v $(t) || echo MISSING)";)
+	@echo ""
+	@echo "Native stack"
+	@$(foreach t,$(DEV_TOOLS),printf "  %-11s %s\n" "$(t)" "$$(command -v $(t) || echo MISSING)";)
+	@echo ""
+	@echo "Checkouts the native stack builds from"
+	@$(foreach r,$(DEV_REPOS),printf "  %-16s %s\n" "$(notdir $(r))" "$$([ -d $(r) ] && cd $(r) && pwd || echo 'MISSING $(r)')";)
+
+.PHONY: require-docker
+require-docker:
+	@command -v docker >/dev/null 2>&1 || { \
+	  echo "docker is not installed, and the container stack is docker." >&2; \
+	  echo "Install Docker Desktop, or run the native stack with 'make dev'." >&2; \
+	  exit 1; }
+
+# Names everything missing in one go. Reporting them one per run would mean a
+# brew install, a rerun, and another name.
+.PHONY: require-dev
+require-dev:
+	@missing=""; \
+	for t in $(DEV_TOOLS); do \
+	  command -v $$t >/dev/null 2>&1 || missing="$$missing $$t"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+	  echo "The dev stack needs these, and they are not installed:$$missing" >&2; \
+	  echo >&2; \
+	  echo "  brew install$$(printf '%s' "$$missing" | sed 's/ npm/ node/')" >&2; \
+	  exit 1; \
+	fi
+	@missing=""; \
+	for r in $(DEV_REPOS); do \
+	  [ -d "$$r" ] || missing="$$missing $$r"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+	  echo "The dev stack builds from every Nabu repository, and these are not checked out:" >&2; \
+	  for r in $$missing; do echo "  $$r" >&2; done; \
+	  echo >&2; \
+	  echo "README, \"Development\", has the layout it expects." >&2; \
+	  exit 1; \
+	fi
