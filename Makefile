@@ -9,6 +9,12 @@
 DOCKER_TOOLS := docker
 DEV_TOOLS := go npm overmind watchexec caddy
 
+# Every port the Procfile hard-codes, and the process that wants it. The stack
+# addresses these by number and nothing negotiates: a service that finds its
+# port taken either dies or, in Vite's case, quietly takes the next one and
+# leaves every backend rejecting it on CORS.
+DEV_PORTS := 5173:frontend 8080:storage 8081:chancery 8082:embeddings 8083:dragoman
+
 # The dev stack builds from these; the container stack fetches from GitHub and
 # needs none of them present.
 DEV_REPOS := ../nabu-storage ../nabu-frontend ../nabu-embeddings ../nabu-prompts ../../chancery ../../dragoman
@@ -51,7 +57,7 @@ logs:
 # running instance. `status` answers over the socket, so its failing means
 # nothing is behind it.
 .PHONY: dev
-dev: require-dev
+dev: require-dev require-ports
 	@if [ -S .overmind.sock ] && ! overmind status >/dev/null 2>&1; then \
 	  echo "removing .overmind.sock, left behind by a run that did not exit"; \
 	  rm -f .overmind.sock; \
@@ -72,6 +78,14 @@ check:
 	@echo ""
 	@echo "Checkouts the native stack builds from"
 	@$(foreach r,$(DEV_REPOS),printf "  %-16s %s\n" "$(notdir $(r))" "$$([ -d $(r) ] && cd $(r) && pwd || echo 'MISSING $(r)')";)
+	@echo ""
+	@echo "Ports the native stack needs"
+	@for entry in $(DEV_PORTS); do \
+	  port=$${entry%%:*}; name=$${entry##*:}; \
+	  holder=$$(lsof -nP -iTCP:$$port -sTCP:LISTEN -F c 2>/dev/null | sed -n 's/^c//p' | head -1); \
+	  if [ -n "$$holder" ]; then state="TAKEN by $$holder"; else state="free"; fi; \
+	  printf "  %-5s %-11s %s\n" "$$port" "$$name" "$$state"; \
+	done
 
 .PHONY: require-docker
 require-docker:
@@ -103,5 +117,28 @@ require-dev:
 	  for r in $$missing; do echo "  $$r" >&2; done; \
 	  echo >&2; \
 	  echo "README, \"Development\", has the layout it expects." >&2; \
+	  exit 1; \
+	fi
+
+# Vite is the reason this is a hard stop rather than a warning. The others fail
+# to bind and die loudly; Vite steps to the next free port and serves the app
+# from an origin no backend has been told to allow, so the stack comes up and
+# every request fails CORS.
+.PHONY: require-ports
+require-ports:
+	@busy=""; \
+	for entry in $(DEV_PORTS); do \
+	  port=$${entry%%:*}; name=$${entry##*:}; \
+	  holder=$$(lsof -nP -iTCP:$$port -sTCP:LISTEN -F c 2>/dev/null | sed -n 's/^c//p' | head -1); \
+	  [ -n "$$holder" ] && busy="$$busy $$port:$$name:$$holder"; \
+	done; \
+	if [ -n "$$busy" ]; then \
+	  echo "The dev stack needs these ports, and something else is on them:" >&2; \
+	  for b in $$busy; do \
+	    printf "  %-5s wanted by %-10s held by %s\n" "$${b%%:*}" "$$(echo $$b | cut -d: -f2)" "$${b##*:}" >&2; \
+	  done; \
+	  echo >&2; \
+	  echo "Stop whatever is holding them, or find it with:" >&2; \
+	  echo "  lsof -nP -iTCP:<port> -sTCP:LISTEN" >&2; \
 	  exit 1; \
 	fi

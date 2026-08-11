@@ -129,7 +129,7 @@ brew install overmind watchexec caddy
 make dev
 ```
 
-`make dev` stops before starting anything if a tool or a checkout is missing, and names every one it found missing at once. `make check` reports the same thing without starting anything, and covers the container stack too. `make` on its own lists every target.
+`make dev` stops before starting anything if a tool is missing, a repository is not checked out, or one of the ports below is already in use, and names every fault it found at once. `make check` reports the same thing without starting anything, and covers the container stack too. `make` on its own lists every target.
 
 The app is on <http://localhost:5173>. `.env` supplies the API keys and `PROJECT_DIR`, exactly as it does for compose, so a stack you have already configured needs nothing added.
 
@@ -144,6 +144,8 @@ There is no proxy. Each service publishes its own port and the app addresses the
 | `dragoman` | 8083 | `dragoman/{cmd,internal}/**/*.{go,yaml}` |
 
 dragoman moves to 8083 here. In the container stack it shares 8080 with storage, which is only possible because each has its own network namespace.
+
+Nothing negotiates these numbers. Each backend is told to allow `http://localhost:5173` and no other origin, so an app served from anywhere else is refused by every one of them. That is why a port already in use is a hard stop rather than a warning, and why the app refuses to start on the next free port the way a Vite dev server otherwise would.
 
 Two differences from the compose stack are worth knowing, because they are the parts this arrangement cannot exercise. Requests are cross-origin rather than same-origin, so the app exercises the CORS path that production never reaches. And the browser talks to storage, chancery and embeddings directly, so the Caddy routing in `Caddyfile` is not in the picture at all. [nabu-e2e](https://github.com/mdijkstra-oss/nabu-e2e) runs against the compose stack and covers both.
 
