@@ -77,6 +77,8 @@ services:
   chancery:
     build:
       context: ${CHANCERY_REPO:-https://github.com/mdijkstra-oss/chancery.git#main}
+    # Named so config-check runs this exact image without building it twice.
+    image: nabu-chancery
     environment:
       RESPONSES_BASE_URL: http://dragoman:8080
       ENV: production
@@ -84,9 +86,17 @@ services:
     # the seeded volume is the entire prompt-and-models configuration.
     volumes:
       - prompts:/config:ro
+    # Every table nabu-prompts ships sits in the volume side by side; this
+    # names which one the tiers resolve against, so switching is a restart
+    # rather than a reseed. An absolute path reads a table mounted elsewhere.
+    command: ["serve", "--models", "${MODELS:-models.openai.yaml}"]
     # depends_on alone waits for start, not for listening.
     depends_on:
       preflight:
+        condition: service_completed_successfully
+      # The seed empties the volume before it refills it, so a chancery that
+      # started alongside it would read a config directory mid-rewrite.
+      prompts-seed:
         condition: service_completed_successfully
       dragoman:
         condition: service_healthy
@@ -115,68 +125,47 @@ services:
       dockerfile_inline: |
         FROM alpine:3
         COPY config/ /seed/config/
-        COPY <<'SCRIPT' /seed.sh
-        set -eu
-
         # Replace, not merge: a prompt file deleted upstream must disappear
         # from the volume too.
-        find /prompts -mindepth 1 -delete
-        cp -R /seed/config/. /prompts/
-
-        if [ -n "$${MODELS_FILE:-}" ]; then
-            # Docker materializes an empty directory when the host path does
-            # not exist; refuse anything but a regular readable file rather
-            # than fall back to a preset.
-            if [ -f /models-file ] && [ -r /models-file ]; then
-                cp /models-file /prompts/models.yaml
-            else
-                echo "MODELS_FILE=$${MODELS_FILE}: not a regular readable file on the host" >&2
-                exit 1
-            fi
-        else
-            preset="/prompts/models.$${MODELS:-openai}.yaml"
-            if [ -f "$$preset" ]; then
-                cp "$$preset" /prompts/models.yaml
-            else
-                echo "MODELS=$${MODELS:-openai}: no such preset; presets that exist:" >&2
-                for f in /seed/config/models.*.yaml; do
-                    p="$${f##*/models.}"
-                    printf '  %s\n' "$${p%.yaml}" >&2
-                done
-                exit 1
-            fi
-        fi
-        SCRIPT
-        ENTRYPOINT ["sh", "/seed.sh"]
-    environment:
-      MODELS: ${MODELS:-openai}
-      MODELS_FILE: ${MODELS_FILE:-}
-    # Unset MODELS_FILE interpolates the mount to the null device; the seed
-    # judges the target by the variable, not the mount.
+        ENTRYPOINT ["sh", "-c", "find /prompts -mindepth 1 -delete && cp -R /seed/config/. /prompts/"]
     volumes:
       - prompts:/prompts
-      - ${MODELS_FILE:-/dev/null}:/models-file:ro
 
-  preflight:
+  # chancery reading its own seeded configuration and reporting every fault in
+  # it — a missing MODELS table, an agent naming an alias the table lacks, a
+  # prompt including a file that is not there. Running it here makes those a
+  # stop with a diagnostic instead of a chancery that boots, exits and is
+  # restarted forever.
+  config-check:
     build:
-      context: ./preflight
-      # The check's service-table input is captured from the exact dragoman
-      # image the stack runs, so the two tables agree whenever the stack is
-      # built together. A partial `docker compose build dragoman` can skew
-      # them until the next full build.
-      additional_contexts:
-        dragoman: "service:dragoman"
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-    # The resolved models.yaml is what required keys are derived from.
+      context: ${CHANCERY_REPO:-https://github.com/mdijkstra-oss/chancery.git#main}
+    image: nabu-chancery
     volumes:
       - prompts:/config:ro
+    command: ["validate", "--models", "${MODELS:-models.openai.yaml}"]
     depends_on:
       prompts-seed:
+        condition: service_completed_successfully
+
+  # The gate every service waits behind, so a stack that cannot work does not
+  # half-start. It checks the one key nothing else checks: the embeddings
+  # service injects OPENAI_API_KEY into every upstream request without
+  # validating it, so an empty one surfaces as an opaque 401 at the first
+  # embedding. Every other provider key is dragoman's business — it serves
+  # without them and answers a request it cannot authenticate by naming the
+  # variable that is missing.
+  preflight:
+    image: alpine:3
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    command:
+      - sh
+      - -c
+      - >-
+        test -n "$${OPENAI_API_KEY}" ||
+        { echo "preflight: OPENAI_API_KEY is unset or empty, required by the embeddings service" >&2; exit 1; }
+    depends_on:
+      config-check:
         condition: service_completed_successfully
 
 volumes:
