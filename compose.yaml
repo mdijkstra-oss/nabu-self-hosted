@@ -40,10 +40,14 @@ services:
       context: ${NABU_STORAGE_REPO:-https://github.com/mdijkstra-oss/nabu-storage.git#main}
     environment:
       PERSISTENCE_DIR: /data
-    # A non-default STORAGE_DATA must be a ./ or absolute host path, writable
-    # by uid 65532 — storage's fixed container user.
     volumes:
-      - ${STORAGE_DATA:-projects}:/data
+      # create_host_path: false so a typo fails here instead of silently
+      # producing a root-owned directory storage cannot write.
+      - type: bind
+        source: ${PROJECT_DIR:?set PROJECT_DIR in .env to a directory for project files}
+        target: /data
+        bind:
+          create_host_path: false
     depends_on:
       preflight:
         condition: service_completed_successfully
@@ -154,22 +158,33 @@ services:
   # embedding. Every other provider key is dragoman's business — it serves
   # without them and answers a request it cannot authenticate by naming the
   # variable that is missing.
+  #
+  # It runs as storage's user so the writability test answers the question
+  # storage will ask. Docker Desktop remaps ownership, so a PROJECT_DIR owned
+  # by another user only fails this on Linux; a read-only mode fails on both.
   preflight:
     image: alpine:3
+    user: "65532:65532"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ${PROJECT_DIR:?set PROJECT_DIR in .env to a directory for project files}
+        target: /data
+        bind:
+          create_host_path: false
     command:
       - sh
       - -c
       - >-
-        test -n "$${OPENAI_API_KEY}" ||
-        { echo "preflight: OPENAI_API_KEY is unset or empty, required by the embeddings service" >&2; exit 1; }
+        { test -n "$${OPENAI_API_KEY}" ||
+        { echo "preflight: OPENAI_API_KEY is unset or empty, required by the embeddings service" >&2; exit 1; }; } &&
+        { test -w /data ||
+        { echo "preflight: PROJECT_DIR is not writable by uid 65532, the user storage runs as" >&2; exit 1; }; }
     depends_on:
       config-check:
         condition: service_completed_successfully
 
 volumes:
-  # Written by storage alone; survives `down`.
-  projects:
   # Rewritten by prompts-seed on every start; disposable.
   prompts:

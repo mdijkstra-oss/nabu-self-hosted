@@ -18,15 +18,27 @@ cd nabu-self-hosted
 cp .env.example .env
 ```
 
-Set `OPENAI_API_KEY` in `.env`, then start the stack:
+Set `OPENAI_API_KEY` and `PROJECT_DIR` in `.env`. `PROJECT_DIR` is the directory your project files are written to, and it has to exist:
+
+```sh
+mkdir -p ~/nabu-notes
+```
+
+To start with a project already in it, copy the sample instead:
+
+```sh
+cp -R sample-project ~/nabu-notes
+```
+
+Then start the stack:
 
 ```sh
 docker compose up
 ```
 
-The first run builds every service from source and takes several minutes. Once the stack is up, open <http://localhost:8090>. The app offers to create a first project.
+The first run builds every service from source and takes several minutes. Once the stack is up, open <http://localhost:8090>. An empty `PROJECT_DIR` means the app offers to create a first project.
 
-Two checks run before any service starts. `chancery validate` reads the seeded configuration and reports every fault in it — a `MODELS` naming no such table, an agent naming an alias the table lacks, a prompt including a file that is not there. A second check stops the stack when `OPENAI_API_KEY` is missing. Either one failing stops the stack rather than leaving a service to crash and restart.
+Three checks run before any service starts. `chancery validate` reads the seeded configuration and reports every fault in it — a `MODELS` naming no such table, an agent naming an alias the table lacks, a prompt including a file that is not there. Two more stop the stack when `OPENAI_API_KEY` is missing and when `PROJECT_DIR` is not writable. Any one failing stops the stack rather than leaving a service to crash and restart.
 
 The other provider keys are checked when they are used. A request for a model whose provider key is unset fails with an error naming that variable. To see every provider and whether its key is set:
 
@@ -68,9 +80,19 @@ MODELS=models.anthropic.yaml docker compose up -d chancery
 
 ## Where data lives
 
-Project files are stored in the Docker volume `projects`. They survive `docker compose down` and are removed only by `docker compose down -v`.
+`PROJECT_DIR` is a directory on your disk, and nothing else. There is no default and no name with a special meaning: a value without a `/` is rejected, and so is a path that does not exist. A `./`-relative path resolves against this repository's directory rather than your shell's working directory.
 
-`STORAGE_DATA` accepts a `./`-relative or absolute host path and stores project files in that directory instead. The directory must be writable by uid 65532, the fixed unprivileged user the storage service runs as.
+The directory must be writable by uid 65532, the fixed unprivileged user storage runs as. On Docker Desktop that is automatic. On Linux it takes `sudo chown -R 65532:65532 <dir>`.
+
+Inside it, one directory per project, named by the project's UUID. The listing is read fresh on every request, so a project directory copied in by hand appears like any other — which is all `sample-project/` is. Nothing seeds it for you and nothing rewrites it, so the files are yours to move, back up, or edit outside the app.
+
+Point `PROJECT_DIR` at a throwaway directory to get a stack that starts clean:
+
+```sh
+PROJECT_DIR=$(mktemp -d) docker compose up
+```
+
+Don't point it into this repository. Storage writes there, so your notes would land under version control and be lost on the next `git pull`.
 
 ## Updating
 
@@ -95,7 +117,7 @@ Every setting is read from `.env`. `.env.example` documents each one next to its
 | `OPENROUTER_API_KEY` | unset | Reachable only from a models yaml of your own naming `openrouter/` models |
 | `MODELS` | `models.openai.yaml` | Which models yaml chancery reads. A bare name is one of the five in [nabu-prompts/config](https://github.com/mdijkstra-oss/nabu-prompts/tree/main/config); an absolute path is a table you mounted |
 | `NABU_PORT` | `8090` | The stack's only published host port |
-| `STORAGE_DATA` | `projects` | Named volume, or a host path for project files |
+| `PROJECT_DIR` | none — required | Host directory project files are written to. Must exist and be writable by uid 65532 |
 | `NABU_FRONTEND_REPO`, `NABU_STORAGE_REPO`, `NABU_EMBEDDINGS_REPO`, `NABU_PROMPTS_REPO`, `CHANCERY_REPO`, `DRAGOMAN_REPO` | unset | Builds a service from a local working copy instead of its GitHub repository |
 
 ## See also
