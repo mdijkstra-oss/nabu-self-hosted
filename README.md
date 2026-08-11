@@ -30,6 +30,8 @@ To start with a project already in it, copy the sample instead:
 cp -R sample-project ~/nabu-notes
 ```
 
+That is a worked project rather than a few example files: eight months of an invented Antarctic expedition's hut journal, a codebook of seven codes in three files, a hundred and eleven codings, and a findings document with three figures drawn from them. `about-this-corpus.md` says what it is and, since none of it happened, what it is not.
+
 Then start the stack:
 
 ```sh
