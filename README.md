@@ -39,13 +39,13 @@ docker compose exec proxy wget -qO- http://dragoman:8080/services
 > [!IMPORTANT]
 > The embeddings service supports OpenAI only. No setting directs it to another provider, so `OPENAI_API_KEY` is required even when every model tier runs on Anthropic, Gemini, or DeepSeek.
 
-`MODELS` in `.env` names the models yaml chancery reads. nabu-prompts ships five, and `models.openai.yaml` is the default:
+`MODELS` in `.env` names the models yaml chancery reads. The five it can name live in [nabu-prompts/config](https://github.com/mdijkstra-oss/nabu-prompts/tree/main/config), and [`models.openai.yaml`](https://github.com/mdijkstra-oss/nabu-prompts/blob/main/config/models.openai.yaml) is the default:
 
 ```sh
 MODELS=models.anthropic.yaml
 ```
 
-The others are `models.gemini.yaml`, `models.deepseek.yaml` and `models.multi.yaml`. Each needs its provider's API key, and `multi` needs several. A model whose key is missing fails when it is first used, naming the variable.
+The example above is [`models.anthropic.yaml`](https://github.com/mdijkstra-oss/nabu-prompts/blob/main/config/models.anthropic.yaml). The remaining three are [`models.gemini.yaml`](https://github.com/mdijkstra-oss/nabu-prompts/blob/main/config/models.gemini.yaml), [`models.deepseek.yaml`](https://github.com/mdijkstra-oss/nabu-prompts/blob/main/config/models.deepseek.yaml) and [`models.multi.yaml`](https://github.com/mdijkstra-oss/nabu-prompts/blob/main/config/models.multi.yaml). Each needs its provider's API key, and `multi` needs several. A model whose key is missing fails when it is first used, naming the variable.
 
 To run your own table instead, mount it into chancery and give `MODELS` its absolute path:
 
@@ -93,7 +93,7 @@ Every setting is read from `.env`. `.env.example` documents each one next to its
 | `GEMINI_API_KEY` | empty | Required by `models.gemini.yaml` and `models.multi.yaml` |
 | `DEEPSEEK_API_KEY` | empty | Required by `models.deepseek.yaml` |
 | `OPENROUTER_API_KEY` | unset | Reachable only from a models yaml of your own naming `openrouter/` models |
-| `MODELS` | `models.openai.yaml` | Which models yaml chancery reads. A bare name is one of the five nabu-prompts ships; an absolute path is a table you mounted |
+| `MODELS` | `models.openai.yaml` | Which models yaml chancery reads. A bare name is one of the five in [nabu-prompts/config](https://github.com/mdijkstra-oss/nabu-prompts/tree/main/config); an absolute path is a table you mounted |
 | `NABU_PORT` | `8090` | The stack's only published host port |
 | `STORAGE_DATA` | `projects` | Named volume, or a host path for project files |
 | `NABU_FRONTEND_REPO`, `NABU_STORAGE_REPO`, `NABU_EMBEDDINGS_REPO`, `NABU_PROMPTS_REPO`, `CHANCERY_REPO`, `DRAGOMAN_REPO` | unset | Builds a service from a local working copy instead of its GitHub repository |
