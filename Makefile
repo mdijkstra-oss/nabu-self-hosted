@@ -29,6 +29,7 @@ help:
 	@echo ""
 	@echo "Native stack, for development"
 	@echo "  make dev       start every service as a process that restarts on a change"
+	@echo "                 FORCE=1 kills whatever holds the ports first"
 	@echo ""
 	@echo "  make check     report what each stack needs and whether it is there"
 
@@ -124,6 +125,9 @@ require-dev:
 # to bind and die loudly; Vite steps to the next free port and serves the app
 # from an origin no backend has been told to allow, so the stack comes up and
 # every request fails CORS.
+#
+# FORCE=1 kills whatever holds the ports instead of stopping: TERM first, then
+# KILL for anything still listening a second later.
 .PHONY: require-ports
 require-ports:
 	@busy=""; \
@@ -132,13 +136,34 @@ require-ports:
 	  holder=$$(lsof -nP -iTCP:$$port -sTCP:LISTEN -F c 2>/dev/null | sed -n 's/^c//p' | head -1); \
 	  [ -n "$$holder" ] && busy="$$busy $$port:$$name:$$holder"; \
 	done; \
-	if [ -n "$$busy" ]; then \
+	[ -z "$$busy" ] && exit 0; \
+	if [ -z "$(FORCE)" ]; then \
 	  echo "The dev stack needs these ports, and something else is on them:" >&2; \
 	  for b in $$busy; do \
 	    printf "  %-5s wanted by %-10s held by %s\n" "$${b%%:*}" "$$(echo $$b | cut -d: -f2)" "$${b##*:}" >&2; \
 	  done; \
 	  echo >&2; \
-	  echo "Stop whatever is holding them, or find it with:" >&2; \
-	  echo "  lsof -nP -iTCP:<port> -sTCP:LISTEN" >&2; \
+	  echo "Stop whatever is holding them, or kill them and start anyway with:" >&2; \
+	  echo "  make dev FORCE=1" >&2; \
 	  exit 1; \
-	fi
+	fi; \
+	for b in $$busy; do \
+	  port=$${b%%:*}; \
+	  echo "killing $${b##*:} on port $$port"; \
+	  kill $$(lsof -nP -tiTCP:$$port -sTCP:LISTEN) 2>/dev/null; \
+	done; \
+	sleep 1; \
+	for b in $$busy; do \
+	  port=$${b%%:*}; \
+	  pids=$$(lsof -nP -tiTCP:$$port -sTCP:LISTEN); \
+	  [ -n "$$pids" ] && kill -9 $$pids 2>/dev/null; \
+	done; \
+	sleep 1; \
+	for b in $$busy; do \
+	  port=$${b%%:*}; \
+	  holder=$$(lsof -nP -iTCP:$$port -sTCP:LISTEN -F c 2>/dev/null | sed -n 's/^c//p' | head -1); \
+	  if [ -n "$$holder" ]; then \
+	    echo "port $$port is still held by $$holder after kill -9" >&2; \
+	    exit 1; \
+	  fi; \
+	done

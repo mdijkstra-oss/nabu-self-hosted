@@ -110,7 +110,7 @@ Each build fetches the `main` branch of every service repository. Builds are the
 
 `docker compose up` builds each service into an image, so a one-line change costs a rebuild. The `Procfile` next to this file runs the same stack as five native processes instead, each rebuilt and restarted the moment its own repository changes.
 
-It expects every repository checked out beside this one, with chancery and dragoman one level up:
+The `*_REPO` variables in `.env` name where each repository lives, for the Procfile and compose builds alike. Unset, the Procfile expects every repository checked out beside this one, with chancery and dragoman one level up:
 
 ```
 .
@@ -131,7 +131,7 @@ brew install overmind watchexec caddy
 make dev
 ```
 
-`make dev` stops before starting anything if a tool is missing, a repository is not checked out, or one of the ports below is already in use, and names every fault it found at once. `make check` reports the same thing without starting anything, and covers the container stack too. `make` on its own lists every target.
+`make dev` stops before starting anything if a tool is missing, a repository is not checked out, or one of the ports below is already in use, and names every fault it found at once. `make dev FORCE=1` kills whatever holds the ports instead — the usual holder is a previous dev stack that outlived its terminal. `make check` reports the same thing without starting anything, and covers the container stack too. `make` on its own lists every target.
 
 The app is on <http://localhost:5173>. `.env` supplies the API keys and `PROJECT_DIR`, exactly as it does for compose, so a stack you have already configured needs nothing added.
 
